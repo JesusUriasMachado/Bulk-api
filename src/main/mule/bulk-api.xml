@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<tls:context name="TLS_Context" doc:name="TLS Context" doc:id="ccdf0fcf-7b70-44d1-a699-6d8126387c8a" >
+		<tls:key-store type="jks" path="${secure::key.path}" alias="${secure::key.alias}" keyPassword="${secure::key.pass}" password="${secure::key.pass}" />
+	</tls:context>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="8e3bc062-f181-45e6-b6bb-a26248519fcb" >
+		<http:listener-connection protocol="HTTPS" host="0.0.0.0" port="${secure::protocol.port}" tlsContext="TLS_Context" />
+	</http:listener-config>
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="1dc91e33-838a-4be2-8827-667863e06e21" >
+		<salesforce:basic-connection username="${secure::sf.user}" password="${secure::sf.pass}" securityToken="${secure::sf.token}" />
+	</salesforce:sfdc-config>
+	<flow name="bulk-apiFlow" doc:id="e28b5601-95a1-428e-b313-0dbb1147fa67" >
+		<http:listener doc:name="Listener" doc:id="fe7aedc9-0b4b-409a-8652-877b5690dfa1" config-ref="HTTP_Listener_config" path="/bulk"/>
+		<file:read doc:name="Read" doc:id="e61db1fe-d4b5-40c6-94f9-09756b3e24d9" path="C:\Users\Jesus Urias\AnypointStudio\studio-workspace\bulk-api\src\main\resources\MOCK.csv"/>
+		<ee:transform doc:name="Transform Message" doc:id="3793852a-b016-49f4-8d1e-88838507375f" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/csv quoteValues=true, header=true
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<salesforce:create-job-bulk-api-v2 doc:name="Create job bulk api v 2" doc:id="76e5f210-bda1-42ea-9a23-ba52a05c833b" config-ref="Salesforce_Config" objectType="Menu__c" operation="upsert" lineEnding="CRLF" externalIdFieldName="Nombre__c"/>
+		<set-variable value="#[payload.id]" doc:name="Set Variable" doc:id="7f48ea72-50f2-4b09-abe2-daab6ea67c5a" variableName="jobId"/>
+		<flow-ref doc:name="Flow Reference" doc:id="c474fb16-03dd-4ba7-9ad1-06bc494ded3d" name="monitor-bulk"/>
+		<salesforce:retrieve-job-failed-results-bulk-v2 doc:name="Retrieve job failed results bulk v 2" doc:id="2bcf28dc-82af-4faa-9164-d940913fe93a" config-ref="Salesforce_Config" id="#[vars.jobId]"/>
+		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="1f19d74f-51bd-4372-9e5c-0a28c460da59" variableName="failedJobs"/>
+		<salesforce:retrieve-job-successful-results-bulk-v2 doc:name="Retrieve job successful results bulk v 2" doc:id="c3a5b9ac-9fe5-437a-b25c-91f503297ae7" config-ref="Salesforce_Config" id="#[vars.jobId]"/>
+		<set-variable value="#[payload]" doc:name="Set Variable" doc:id="a1917e0f-845f-4067-9a1d-1e12778cd214" variableName="successfulJobs"/>
+		<ee:transform doc:name="Transform Message" doc:id="95bd424e-d363-4a45-baa0-cbae73d28380" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message : "Bulk data finished",
+	successful : sizeOf(vars.successfulJobs),
+	failed : sizeOf(vars.failedJobs)
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<remove-variable doc:name="Remove Variable" doc:id="b79c4c91-5742-435a-bf23-6459c88bd2b3" variableName="failedJobs"/>
+		<remove-variable doc:name="Remove Variable" doc:id="610bb441-66bc-4d55-8903-fe56b89ea75a" variableName="successfulJobs"/>
+	</flow>
+	<flow doc:id="97a6bb18-622e-4ba2-92fa-04efe4b2bf06" name="monitor-bulk">
+		<until-successful maxRetries="5" doc:name="Until Successful" doc:id="429cbd65-c50a-4755-9565-c3b2946c0deb" millisBetweenRetries="5000">
+			<try doc:name="Try" doc:id="89e7af4a-0e37-43d9-a7ac-1a7a46b9ffb5" >
+				<salesforce:get-job-state-bulk-api-v2 doc:name="Get job state bulk api v 2" doc:id="35eacf55-1c57-412c-8b0a-e2c9bb85b7fd" config-ref="Salesforce_Config" id="#[vars.jobId]"/>
+				<choice doc:name="Choice" doc:id="ada9aefd-fc79-4525-956f-f59b18012099" >
+					<when expression='#[payload.state=="JobComplete"]'>
+						<logger level="INFO" doc:name="Logger" doc:id="63ef2e65-db94-4aff-8e1c-a31efa0f0e65" message="--- BULK COMPLETE ---"/>
+					</when>
+					<otherwise >
+						<raise-error doc:name="Raise error" doc:id="69d81643-02ee-4632-beca-373baae2c639" type="MULE:EXPRESSION"/>
+					</otherwise>
+				</choice>
+				<error-handler>
+					<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="18c29745-44a2-480a-a117-1453268d72b5" >
+						<logger level="INFO" doc:name="Logger" doc:id="f28b65a4-f32d-4890-80f2-138485844c2c" message="#[payload]"/>
+					</on-error-propagate>
+				</error-handler>
+			</try>
+		</until-successful>
+	</flow>
+</mule>
