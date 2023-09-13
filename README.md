@@ -1,7 +1,7 @@
 # Bulk-api
 Bulk api to insert data into Salesforec
 
-In order to execute this project is needed the following:
+In order to execute this project you need the following:
   1. Properties file with the following encrypted data:<br>
     •key.pass: Certificate's password.<br>
     •sf.token: Salesforce's account security token where data is going to be bulked.<br>
