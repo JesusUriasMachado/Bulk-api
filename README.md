@@ -1,5 +1,5 @@
 # Bulk-api
-Bulk api to insert data into Salesforec
+Bulk api to insert data into Salesforce
 
 In order to execute this project you need the following:
   1. Properties file with the following encrypted data:<br>
